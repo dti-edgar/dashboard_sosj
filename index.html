@@ -1503,6 +1503,20 @@ function applySession(user) {
   // Show upload only for admin
   const isAdmin = user.role === 'admin' || user.email === ADMIN_EMAIL;
   document.getElementById('uploadBtn').style.display = isAdmin ? 'flex' : 'none';
+  // For viewers: hide ALL upload/carregar buttons inside empty states and replace with message
+  if (!isAdmin) {
+    // Hide all "Carregar arquivo" buttons in empty states
+    document.querySelectorAll('.empty .btn-primary').forEach(btn => {
+      btn.style.display = 'none';
+    });
+    // Also replace empty state subtitle to be viewer-appropriate
+    document.querySelectorAll('.empty .empty-sub').forEach(el => {
+      el.textContent = 'Aguarde o administrador carregar os dados para visualizar o dashboard.';
+    });
+    document.querySelectorAll('.empty .empty-ttl').forEach(el => {
+      el.textContent = 'Dados não disponíveis';
+    });
+  }
   // Update status
   document.getElementById('stxt').textContent = 'aguardando dados';
 }
