@@ -837,6 +837,10 @@ function processData(raw,fname){
   renderProjections();
   renderAnalysis();
   buildInsights(allMonthly, allCamps, allByPlat);
+  // Admin: save to GitHub after processing
+  if (currentUser && (currentUser.role === 'admin' || currentUser.email === ADMIN_EMAIL)) {
+    saveDataToGitHub(allMonthly, allByPlat, allCamps, campMonthly);
+  }
 }
 
 /* ══ FILTER LOGIC ══ */
@@ -1519,6 +1523,11 @@ function applySession(user) {
   }
   // Update status
   document.getElementById('stxt').textContent = 'aguardando dados';
+  // Auto-load data from GitHub for all users
+  document.getElementById('stxt').textContent = 'carregando dados...';
+  loadDataFromGitHub().then(ok => {
+    if (!ok) document.getElementById('stxt').textContent = 'aguardando dados';
+  });
 }
 
 function doLogout() {
@@ -1554,6 +1563,77 @@ function doLogout() {
     }
   }
 })();
+
+
+/* ══ GITHUB DATA SYNC ══ */
+const GH_TOKEN    = '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';   // ← substitua pelo seu token
+const GH_OWNER    = 'dti-edgar';
+const GH_REPO     = 'dashboard_sosj';
+const GH_FILE     = 'dados_dashboard.json';
+const GH_BRANCH   = 'main';
+const GH_API_BASE = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
+
+/* Save processed data to GitHub (admin only) */
+async function saveDataToGitHub(monthly, byPlat, camps, campMonthly) {
+  if (!GH_TOKEN || GH_TOKEN === 'COLE_SEU_TOKEN_AQUI') return;
+  try {
+    const payload = { monthly, byPlat, camps, campMonthly, updatedAt: new Date().toISOString() };
+    const content = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    // Check if file exists to get SHA
+    let sha = null;
+    try {
+      const check = await fetch(GH_API_BASE, {
+        headers: { Authorization: `token ${GH_TOKEN}`, Accept: 'application/vnd.github.v3+json' }
+      });
+      if (check.ok) { const d = await check.json(); sha = d.sha; }
+    } catch(e) {}
+    const body = { message: 'Atualização dashboard ' + new Date().toLocaleDateString('pt-BR'), content, branch: GH_BRANCH };
+    if (sha) body.sha = sha;
+    const res = await fetch(GH_API_BASE, {
+      method: 'PUT',
+      headers: { Authorization: `token ${GH_TOKEN}`, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (res.ok) { toast('Dados salvos e sincronizados ✓', '☁️'); }
+    else { console.error('GitHub save failed:', await res.text()); }
+  } catch(e) { console.error('GitHub sync error:', e); }
+}
+
+/* Load data from GitHub (viewers + admin on open) */
+async function loadDataFromGitHub() {
+  const RAW = `https://raw.githubusercontent.com/${GH_OWNER}/${GH_REPO}/${GH_BRANCH}/${GH_FILE}`;
+  try {
+    const res = await fetch(RAW + '?t=' + Date.now());
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (!data.monthly || !data.monthly.length) return false;
+    // Inject into globals
+    allMonthly   = data.monthly;
+    allByPlat    = data.byPlat;
+    allCamps     = data.camps;
+    campMonthly  = data.campMonthly;
+    // Rebuild year selects
+    const years = [...new Set(allMonthly.map(r => r.mes.slice(0,4)))].sort();
+    function popY(id){ document.getElementById(id).innerHTML = '<option value="all">Todos os anos</option>' + years.map(y=>`<option value="${y}">${y}</option>`).join(''); }
+    ['fYear','sv1Year','fyYear','aYear'].forEach(popY);
+    const moOpts = '<option value="all">Todos os meses</option>' + ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m,i)=>`<option value="${String(i+1).padStart(2,'0')}">${m}</option>`).join('');
+    ['fMonth','fyMonth'].forEach(id => document.getElementById(id).innerHTML = moOpts);
+    // Show dashboard
+    const last = allMonthly[allMonthly.length-1]?.mes || '';
+    document.getElementById('stxt').textContent = `${allMonthly.length} meses · até ${last}`;
+    document.getElementById('sdot').classList.add('on');
+    ['emptyDash','emptyProj','emptyCamp','emptyAnal'].forEach(id => document.getElementById(id).style.display = 'none');
+    ['dashData','projData','campTabData','analData'].forEach(id => document.getElementById(id).style.display = 'block');
+    initCampTab();
+    applyF();
+    renderProjections();
+    renderAnalysis();
+    buildInsights(allMonthly, allCamps, allByPlat);
+    const upAt = data.updatedAt ? new Date(data.updatedAt).toLocaleString('pt-BR') : '';
+    document.getElementById('fmeta').textContent = `Dados sincronizados ${upAt}`;
+    return true;
+  } catch(e) { return false; }
+}
 
 </script>
 </body>
